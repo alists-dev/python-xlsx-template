@@ -31,7 +31,7 @@ def image(color: str) -> bytes:
 
 def main() -> None:
     context = {
-        "company": "Dia Logistics Indonesia",
+        "company": "Abracadabra!",
         "report_date": date.today().isoformat(),
         "lines": [
             Line("Ocean Freight", 2, 1_500_000, image("#5B9BD5")),

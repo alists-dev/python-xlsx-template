@@ -9,7 +9,7 @@ description = "Render Jinja templates directly in XLSX OOXML worksheet parts"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "Dia Logistics Indonesia"}]
+authors = [{name = "alists-dev"}]
 dependencies = ["Jinja2>=3.1", "Pillow>=9"]
 
 [project.optional-dependencies]
