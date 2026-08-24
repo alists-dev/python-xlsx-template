@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xlsx-jinja"
+version = "0.3.0"
+description = "Render Jinja templates directly in XLSX OOXML worksheet parts"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Dia Logistics Indonesia"}]
+dependencies = ["Jinja2>=3.1", "Pillow>=9"]
+
+[project.optional-dependencies]
+examples = ["openpyxl>=3.1"]
+
+[tool.setuptools.packages.find]
+include = ["xlsx_jinja*"]
