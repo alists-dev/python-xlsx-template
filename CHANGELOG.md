@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refactored OOXML constants and tag patterns into separate modules (`_xml.py`, `_tags.py`) for clarity and reusability. No API changes.
 
+## [0.4.0] - 2025-XX-XX
+
+- RichText value-object for styled cell runs
+- Variable discovery via `get_undeclared_template_variables()`
+- Media swapping via `replace_media()` for CRC32-matched embedded images
+- Refactored OOXML constants and tag patterns into `_xml.py` and `_tags.py`
+
 ## [0.3.0] - 2025-XX-XX
 
 - Initial public release.
