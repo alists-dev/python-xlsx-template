@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checkbox rendering**: `{% yn condition %}` tag renders a checkbox glyph (☑/☐) using the cell's existing font. Pass a second argument to invert: `{% yn condition, True %}`.
+
 - **RichText**: Value-object for styled cell runs, mirrors `docxtpl.RichText`.
   Build styled text in Python and drop into template expressions: `{{ RichText("Bold", bold=True).add(" plain") }}`.
   Supports: `bold`, `italic`, `underline`, `strike`, `color`, `size`, `font`, `subscript`, `superscript`.

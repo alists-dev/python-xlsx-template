@@ -544,6 +544,29 @@ def test_richtext_mixed_with_other_text_fails_clearly():
         template.render({"rt": RichText("value")})
 
 
+def test_yn_tag_renders_checkbox_glyph_with_optional_invert():
+    strings = [
+        "{% yn approved %}",
+        "{% yn approved, True %}",
+    ]
+    sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
+      <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>
+    </sheetData></worksheet>'''
+    root, _ = render(package(sheet, strings), {"approved": True})
+    result = cells(root)
+    assert text(result["A1"]) == "\u2611"
+    assert text(result["B1"]) == "\u2610"
+
+
+def test_yn_tag_is_recognized_by_undeclared_variable_scan():
+    strings = ["{% yn approved %}"]
+    sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
+      <row r="1"><c r="A1" t="s"><v>0</v></c></row>
+    </sheetData></worksheet>'''
+    template = XlsxTemplate(package(sheet, strings))
+    assert template.get_undeclared_template_variables() == {"approved"}
+
+
 def test_img_without_placeholder_fails_clearly():
     sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
       <row r="1"><c r="A1" t="inlineStr"><is><t>{{% img logo %}}</t></is></c></row>

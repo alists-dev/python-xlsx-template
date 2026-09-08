@@ -193,6 +193,18 @@ All output images are normalized to PNG in-memory (including WebP inputs).
 
 ---
 
+## Checkbox Rendering (`{% yn %}`)
+
+Render a boolean as a checkbox glyph, using the cell's existing font (no font injection required):
+```jinja2
+{% yn line.approved %}
+```
+Pass a second argument to invert the check:
+```jinja2
+{% yn line.rejected, True %}
+```
+Renders `☑` (checked) or `☐` (unchecked).
+
 ## Custom Jinja Globals & Environment
 
 ```python
@@ -297,6 +309,7 @@ python tests/test_template.py
 - Independent block/region scope (`{%b RANGE %}`)
 - Multi-row loop blocks & nested row loops
 - Native numbers, booleans, dates, datetimes (`{% xv %}`)
+- Checkbox glyph rendering (`{% yn %}`)
 - Image placeholder replacement (`{% img %}`) & auto-scaled insertion (`{% insert_img %}`)
 - Automatic row-loop image replication & positioning
 - Merged ranges inside loop rows & independent regions

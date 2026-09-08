@@ -23,7 +23,9 @@ from ._tags import (
     STRUCTURAL_ROW_RE as _STRUCTURAL_ROW_RE,
     TR_RE as _TR_RE,
     XV_RE as _XV_RE,
+    YN_RE as _YN_RE,
 )
+from .checkbox import render_checkbox
 from ._xml import (
     CONTENT_TYPES_NS,
     DRAWING_MAIN_NS,
@@ -448,13 +450,16 @@ class XlsxTemplate:
             image_values.append((mode, value, int(index)))
             return f"__XLSX_JINJA_IMAGE_{len(image_values) - 1}__"
 
-        env.globals.update(__xlsx_native=native, __xlsx_image=image)
+        env.globals.update(
+            __xlsx_native=native, __xlsx_image=image, __xlsx_yn=render_checkbox
+        )
         template = _XV_RE.sub(r"{{ __xlsx_native(\1) }}", "".join(template_parts))
         template = _IMAGE_TAG_RE.sub(
             lambda match: "{{ __xlsx_image(%r, %s) }}"
             % (match.group(1).lower(), match.group(2)),
             template,
         )
+        template = _YN_RE.sub(r"{{ __xlsx_yn(\1) }}", template)
 
         rendered = env.from_string(template).render(context)
         try:

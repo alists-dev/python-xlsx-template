@@ -14,6 +14,7 @@ XV_RE = re.compile(r"{%\s*xv\s+(.+?)\s*%}", re.DOTALL | re.IGNORECASE)
 IMAGE_TAG_RE = re.compile(
     r"{%\s*(img|insert_img)\s+(.+?)\s*%}", re.DOTALL | re.IGNORECASE
 )
+YN_RE = re.compile(r"{%\s*yn\s+(.+?)\s*%}", re.DOTALL | re.IGNORECASE)
 STRUCTURAL_ROW_RE = re.compile(r"^\s*{%\s*r\s+(.+?)\s*%}\s*$", re.DOTALL | re.IGNORECASE)
 BLOCK_MARKER_RE = re.compile(
     r"^\s*{%\s*b\s+([A-Z]{1,3}:[A-Z]{1,3})\s+(.+?)\s*%}\s*$",
@@ -39,4 +40,5 @@ def normalize_custom_tags(text: str) -> str:
     text = TR_RE.sub("", text)
     text = XV_RE.sub(r"{{ \1 }}", text)
     text = IMAGE_TAG_RE.sub(r"{{ \2 }}", text)
+    text = YN_RE.sub(r"{{ \1 }}", text)
     return text
