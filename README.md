@@ -214,6 +214,49 @@ from jinja2 import Environment, StrictUndefined
 book.render(context, jinja_env=Environment(undefined=StrictUndefined))
 ```
 
+## Rich Text Runs
+
+Build styled text runs from Python and drop the object straight into a template expression. The `RichText` value must be the entire content of its cell:
+
+```python
+from xlsx_jinja import RichText
+
+note = RichText("Overdue", bold=True, color="FF0000").add(" — please pay", italic=True)
+template.render({"note": note})
+```
+
+```jinja2
+{{ note }}
+```
+
+Supported run options: `bold`, `italic`, `underline` (`True` or a style name), `strike`, `color`, `size`, `font`, `subscript`, `superscript`.
+
+## Discovering Template Variables
+
+```python
+template = XlsxTemplate("invoice_template.xlsx")
+template.get_undeclared_template_variables()
+# {'company', 'lines', 'report_date', ...}
+```
+
+Scans every worksheet's cell text (including `{%r %}`, `{%b %}`, `{% xv %}`, `{% img %}` tags) without rendering.
+
+## Swapping Media Without Re-Rendering
+
+Useful when only an embedded picture (e.g. a per-tenant logo) needs to change:
+
+```python
+template = XlsxTemplate("template.xlsx")
+with open("original_logo.png", "rb") as fh:
+    original = fh.read()
+with open("new_logo.png", "rb") as fh:
+    replacement = fh.read()
+template.replace_media(original, replacement)
+template.save("output.xlsx")  # no render() call needed
+```
+
+`source` must match the original embedded bytes exactly (matched via CRC32). Call `template.reset_replacements()` to clear pending swaps before reusing the same `XlsxTemplate` instance.
+
 ## Multi-Sheet Rendering
 All worksheets are rendered using the same context. Every worksheet also receives:
 - `sheet_name`: title of the active worksheet

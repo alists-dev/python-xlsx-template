@@ -13,43 +13,37 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from xml.etree import ElementTree as ET
 
-from jinja2 import Environment
+from jinja2 import Environment, meta
 from PIL import Image
 
-MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
-DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
-DRAWING_MAIN_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
-CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+from ._tags import (
+    BLOCK_MARKER_RE as _BLOCK_MARKER_RE,
+    IMAGE_TAG_RE as _IMAGE_TAG_RE,
+    JINJA_RE as _JINJA_RE,
+    STRUCTURAL_ROW_RE as _STRUCTURAL_ROW_RE,
+    TR_RE as _TR_RE,
+    XV_RE as _XV_RE,
+)
+from ._xml import (
+    CONTENT_TYPES_NS,
+    DRAWING_MAIN_NS,
+    DRAWING_NS,
+    MAIN_NS,
+    NS,
+    PACKAGE_REL_NS,
+    REL_NS,
+    q as _q,
+    qn as _qn,
+)
+from .introspection import find_undeclared_variables
+from .media import apply_media_replacements, compute_crc32
+from .richtext import RichText, apply_richtext_cell, make_richtext_finalize
+
 MAX_XLSX_ROW = 1_048_576
 DRAWING_REL = f"{REL_NS}/drawing"
 IMAGE_REL = f"{REL_NS}/image"
-NS = {
-    "x": MAIN_NS,
-    "r": REL_NS,
-    "pr": PACKAGE_REL_NS,
-    "xdr": DRAWING_NS,
-    "a": DRAWING_MAIN_NS,
-}
 
-ET.register_namespace("", MAIN_NS)
-ET.register_namespace("r", REL_NS)
-ET.register_namespace("xdr", DRAWING_NS)
-ET.register_namespace("a", DRAWING_MAIN_NS)
-
-_JINJA_RE = re.compile(r"({[{%#].*?[}%#]})", re.DOTALL)
-_XV_RE = re.compile(r"{%\s*xv\s+(.+?)\s*%}", re.DOTALL | re.IGNORECASE)
-_IMAGE_TAG_RE = re.compile(
-    r"{%\s*(img|insert_img)\s+(.+?)\s*%}", re.DOTALL | re.IGNORECASE
-)
-_STRUCTURAL_ROW_RE = re.compile(r"^\s*{%\s*r\s+(.+?)\s*%}\s*$", re.DOTALL | re.IGNORECASE)
-_BLOCK_MARKER_RE = re.compile(
-    r"^\s*{%\s*b\s+([A-Z]{1,3}:[A-Z]{1,3})\s+(.+?)\s*%}\s*$",
-    re.DOTALL | re.IGNORECASE,
-)
 _FOR_STATEMENT_RE = re.compile(r"^for\s+(.+?)\s+in\s+(.+)$", re.DOTALL | re.IGNORECASE)
-_TR_RE = re.compile(r"{%\s*tr\s*%}", re.IGNORECASE)
 _LEADING_CONTROL_RE = re.compile(
     r"^\s*{%\s*((?:for|if|elif|else|endfor|endif)\b.*?)\s*%}",
     re.DOTALL | re.IGNORECASE,
@@ -85,14 +79,6 @@ class XlsxJinjaError(Exception):
 
 class UnsupportedFeatureError(XlsxJinjaError):
     pass
-
-
-def _q(name: str) -> str:
-    return f"{{{MAIN_NS}}}{name}"
-
-
-def _qn(namespace: str, name: str) -> str:
-    return f"{{{namespace}}}{name}"
 
 
 def _column_number(column: str) -> int:
@@ -203,6 +189,7 @@ class XlsxTemplate:
 
         self._entries = dict(self._original_entries)
         self._globals: dict[str, Any] = {}
+        self._media_replacements: dict[int, bytes] = {}
         self._rendered = False
 
     @property
@@ -211,6 +198,46 @@ class XlsxTemplate:
 
     def set_jinja_globals(self, **globals_: Any) -> None:
         self._globals.update(globals_)
+
+    def replace_media(self, source: bytes, replacement: bytes) -> None:
+        """Swap an embedded media part by content, matched via CRC32.
+
+        Useful to change a picture (e.g. a per-tenant logo) without a full
+        render pass. ``source`` must be the exact original bytes so its CRC32
+        can be looked up among ``xl/media/*`` parts at save time.
+        """
+        self._media_replacements[compute_crc32(source)] = replacement
+
+    def reset_replacements(self) -> None:
+        """Clear any pending ``replace_media`` registrations."""
+        self._media_replacements = {}
+
+    def get_undeclared_template_variables(
+        self, jinja_env: Environment | None = None
+    ) -> set[str]:
+        """Return Jinja variable names referenced anywhere in the workbook."""
+        shared_strings = self._shared_strings()
+        sheet_texts = [
+            self._sheet_cell_texts(sheet_path, shared_strings)
+            for _, sheet_path in self._worksheet_parts()
+        ]
+        return find_undeclared_variables(sheet_texts, jinja_env)
+
+    def _sheet_cell_texts(
+        self, sheet_path: str, shared_strings: list[str]
+    ) -> list[str]:
+        data = self._original_entries.get(sheet_path)
+        if not data:
+            return []
+        root = ET.fromstring(data)
+        sheet_data = root.find("x:sheetData", NS)
+        if sheet_data is None:
+            return []
+        return [
+            text
+            for cell in sheet_data.iter(_q("c"))
+            if (text := self._cell_text(cell, shared_strings)) is not None
+        ]
 
     def render(
         self,
@@ -222,6 +249,7 @@ class XlsxTemplate:
         shared_strings = self._shared_strings()
         sheets = self._worksheet_parts()
         comments = self._comment_controls(sheets)
+        base_finalize = getattr(jinja_env, "finalize", None) if jinja_env else None
 
         for index, (sheet_name, sheet_path) in enumerate(sheets):
             if sheet_path not in self._entries:
@@ -230,6 +258,8 @@ class XlsxTemplate:
             if jinja_env is not None:
                 env.autoescape = autoescape
             env.globals.update(self._globals)
+            richtext_values: list[RichText] = []
+            env.finalize = make_richtext_finalize(richtext_values, base_finalize)
             sheet_context = dict(context)
             sheet_context.update(sheet_name=sheet_name, tpl_idx=index)
             self._entries[sheet_path] = self._render_sheet(
@@ -239,6 +269,7 @@ class XlsxTemplate:
                 comments.get(sheet_path, {}),
                 sheet_context,
                 env,
+                richtext_values,
             )
 
         self._rendered = True
@@ -254,12 +285,13 @@ class XlsxTemplate:
             target = open(output, "wb")
             close_target = True
 
+        entries = apply_media_replacements(self._entries, self._media_replacements)
         try:
             with zipfile.ZipFile(target, "w") as archive:
                 original_names = {info.filename for info in self._infos}
                 for info in self._infos:
-                    archive.writestr(info, self._entries[info.filename])
-                for name, data in self._entries.items():
+                    archive.writestr(info, entries[info.filename])
+                for name, data in entries.items():
                     if name not in original_names:
                         archive.writestr(name, data, zipfile.ZIP_DEFLATED)
         finally:
@@ -344,6 +376,7 @@ class XlsxTemplate:
         comment_controls: dict[int, list[str]],
         context: dict[str, Any],
         env: Environment,
+        richtext_values: list[RichText],
     ) -> bytes:
         namespaces = _register_namespaces(xml)
         root = ET.fromstring(xml)
@@ -373,6 +406,7 @@ class XlsxTemplate:
                 comment_controls,
                 context,
                 env,
+                richtext_values,
             )
 
         source_rows = []
@@ -438,7 +472,7 @@ class XlsxTemplate:
             old_row = int(row.get("data-xlsx-jinja-old-r", row.get("r", "0")))
             new_row = int(row.get("r", "0"))
             row.attrib.pop("data-xlsx-jinja-old-r", None)
-            self._apply_native_values(row, native_values)
+            self._apply_native_values(row, native_values, richtext_values)
             self._collect_image_values(
                 row, old_row, image_values, image_requests
             )
@@ -1120,11 +1154,18 @@ class XlsxTemplate:
         return row_map
 
     @staticmethod
-    def _apply_native_values(row: ET.Element, native_values: list[Any]) -> None:
+    def _apply_native_values(
+        row: ET.Element,
+        native_values: list[Any],
+        richtext_values: list[RichText],
+    ) -> None:
         for cell in row.findall("x:c", NS):
             if cell.get("t") != "inlineStr":
                 continue
-            text = "".join(node.text or "" for node in cell.iter(_q("t"))).strip()
+            full_text = "".join(node.text or "" for node in cell.iter(_q("t")))
+            if apply_richtext_cell(cell, full_text, richtext_values):
+                continue
+            text = full_text.strip()
             match = _NATIVE_TOKEN_RE.match(text)
             if not match:
                 continue

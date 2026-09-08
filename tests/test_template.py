@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from xlsx_jinja import UnsupportedFeatureError, XlsxTemplate
+from xlsx_jinja import RichText, UnsupportedFeatureError, XlsxTemplate
 
 NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 MAIN = NS["x"]
@@ -476,6 +476,72 @@ def test_shipped_invoice_example_template_renders():
     assert b"Freight" in sheet and b"(inactive) Handling" in sheet
     assert b"SUM(E5:E6)" in sheet
     assert len(list(drawing)) == 2
+
+
+def test_get_undeclared_template_variables_scans_all_tag_forms():
+    strings = [
+        "{%r for item in items %}",
+        "{{ item.name }}: {% xv item.qty %}",
+        "{%r endfor %}",
+        "{% if show_total %}{{ total }}{% endif %}",
+        "{% img logo %}",
+    ]
+    sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
+      <row r="1"><c r="A1" t="s"><v>0</v></c></row>
+      <row r="2"><c r="A2" t="s"><v>1</v></c></row>
+      <row r="3"><c r="A3" t="s"><v>2</v></c></row>
+      <row r="4"><c r="A4" t="s"><v>3</v></c></row>
+      <row r="5"><c r="A5" t="s"><v>4</v></c></row>
+    </sheetData></worksheet>'''
+    template = XlsxTemplate(package(sheet, strings))
+    variables = template.get_undeclared_template_variables()
+    assert variables == {"items", "show_total", "total", "logo"}
+
+
+def test_replace_media_swaps_by_crc_without_rendering():
+    other_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAAC0lEQVQI12NgAAIAAAUAAen63NgAAAAASUVORK5CYII="
+    )
+    sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
+      <row r="1"><c r="A1" t="inlineStr"><is><t>static</t></is></c></row>
+    </sheetData></worksheet>'''
+    extra = {"xl/media/image1.png": PNG}
+    template = XlsxTemplate(package(sheet, extra=extra))
+    template.replace_media(PNG, other_png)
+    output = io.BytesIO()
+    template.save(output)
+    with zipfile.ZipFile(output) as archive:
+        assert archive.read("xl/media/image1.png") == other_png
+
+    template.reset_replacements()
+    output = io.BytesIO()
+    template.save(output)
+    with zipfile.ZipFile(output) as archive:
+        assert archive.read("xl/media/image1.png") == PNG
+
+
+def test_richtext_value_renders_styled_runs_in_its_cell():
+    sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
+      <row r="1"><c r="A1" t="inlineStr"><is><t>{{{{ rt }}}}</t></is></c></row>
+    </sheetData></worksheet>'''
+    rich_text = RichText("Bold", bold=True).add(" plain", color="#FF0000")
+    root, _ = render(package(sheet), {"rt": rich_text})
+    result = cells(root)
+    runs = result["A1"].findall(".//x:r", NS)
+    assert len(runs) == 2
+    assert runs[0].findtext("x:t", namespaces=NS) == "Bold"
+    assert runs[0].find("x:rPr/x:b", NS) is not None
+    assert runs[1].findtext("x:t", namespaces=NS) == " plain"
+    assert runs[1].find("x:rPr/x:color", NS).get("rgb") == "FFFF0000"
+
+
+def test_richtext_mixed_with_other_text_fails_clearly():
+    sheet = f'''<worksheet xmlns="{MAIN}"><sheetData>
+      <row r="1"><c r="A1" t="inlineStr"><is><t>prefix {{{{ rt }}}}</t></is></c></row>
+    </sheetData></worksheet>'''
+    template = XlsxTemplate(package(sheet))
+    with unittest.TestCase().assertRaisesRegex(ValueError, "entire content"):
+        template.render({"rt": RichText("value")})
 
 
 def test_img_without_placeholder_fails_clearly():
